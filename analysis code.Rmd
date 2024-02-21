@@ -1,0 +1,186 @@
+---
+title: "analysis code"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+data <- read_csv("cleaned esports data.csv")
+```
+
+```{r}
+# creating training and testing datasets
+
+# set.seed(7)
+# train <- data[sample(1:nrow(data), 1015, replace=F), ]
+# test <- setdiff(data, train)
+
+# creating csv files for the training and testing datasets
+
+# write_csv(train, file="train.csv")
+# write_csv(test, file="test.csv")
+
+train <- read_csv("train.csv")
+test <- read_csv("test.csv")
+```
+
+```{r}
+# Fitting a model
+model <- lm(golddiffat15 ~ cspm + dpm + killsat15 + deathsat15 + xpdiffat15 +
+               firstblood, data=train)
+
+# checking additional conditions:
+# condition 1:
+plot(train$golddiffat15 ~ fitted(model))
+# condition 2:
+pairs(data[,2:7])
+
+# creating residual plots
+par(mfrow=c(2,4))
+plot(resid(model) ~ fitted(model))
+plot(resid(model) ~ train$cspm)
+plot(resid(model) ~ train$dpm)
+plot(resid(model) ~ train$killsat15)
+plot(resid(model) ~ train$deathsat15)
+plot(resid(model) ~ train$xpdiffat15)
+plot(resid(model) ~ train$firstblood)
+
+# creating qq-plot
+qqnorm(resid(model))
+qqline(resid(model))
+```
+
+```{r}
+# transformations to fix non-constant variance in killsat15 and deathsat15
+train$sqrtKillsAt15 <- sqrt(train$killsat15)
+train$sqrtDeathsAt15 <- sqrt(train$deathsat15)
+```
+
+```{r}
+# re-fitting the model using the transformed variables
+modelTransformed <- lm(golddiffat15 ~ cspm + dpm + sqrtKillsAt15 + 
+                         sqrtDeathsAt15 + xpdiffat15 + firstblood, data=train)
+
+# assessing multicollinearity by computing variance inflation factors
+# install.packages("car")
+library(car)
+vif(modelTransformed)
+```
+
+```{r}
+# finding problematic observations
+# creating some variables
+n <- 1015
+p <- 6
+
+# computing cutoffs
+leverage <- 2*((p+1)/n)
+cooksDistance <- qf(0.5, p+1, n-p-1)
+DFFITS <- 2*sqrt((p+1)/n)
+DFBETAS <- 2/(sqrt(n))
+
+# finding leverage points
+print("leverage points")
+h <- hatvalues(modelTransformed)
+which(h > leverage)
+
+# finding outlier points
+print("outlier points")
+r <- rstandard(modelTransformed)
+which(r < -4 | r > 4)
+
+# finding influential points
+print("influential points")
+print("computed using cook's distance")
+D <- cooks.distance(modelTransformed)
+which(D > cooksDistance)
+
+print("computed using dffits")
+fits <- dffits(modelTransformed)
+which(abs(fits) > DFFITS)
+
+print("computed using dfbetas")
+betas <- dfbetas(modelTransformed)
+for(i in 1:6){
+  print(paste("beta", i-1))
+  print(which(abs(betas[,i]) > DFBETAS))
+}
+```
+
+```{r}
+# summary of model to see t-test results for each coefficient
+summary(modelTransformed)
+
+# partial f-tests to see if we can remove cspm and dpm
+modelReduced <- lm(golddiffat15 ~ sqrtKillsAt15 + sqrtDeathsAt15 + xpdiffat15 +
+                     firstblood, data=train)
+
+# re-checking assumptions for the reduced model
+# creating residual plots
+par(mfrow=c(2,3))
+plot(resid(model) ~ fitted(modelReduced))
+plot(resid(model) ~ train$sqrtKillsAt15)
+plot(resid(model) ~ train$sqrtDeathsAt15)
+plot(resid(model) ~ train$xpdiffat15)
+plot(resid(model) ~ train$firstblood)
+
+# creating qq-plot
+qqnorm(resid(modelReduced))
+qqline(resid(modelReduced))
+
+anova(modelReduced, modelTransformed)
+```
+
+```{r}
+# computing goodness measures of the models
+AIC(modelTransformed)
+AIC(modelReduced)
+
+BIC(modelTransformed)
+BIC(modelReduced)
+
+# checking the summary of modelReduced to find its adjusted R^2
+summary(modelReduced)
+```
+
+```{r}
+library(car)
+# model validation
+# rechecking assumptions in the validation dataset
+testingModel <- lm(golddiffat15 ~ cspm + dpm + killsat15 + deathsat15 + 
+                     xpdiffat15 + firstblood, data=test)
+
+# checking additional conditions:
+# condition 1:
+plot(train$golddiffat15 ~ fitted(testingModel))
+# condition 2:
+pairs(data[,2:7])
+
+# creating residual plots
+par(mfrow=c(2,4))
+plot(resid(testingModel) ~ fitted(testingModel))
+plot(resid(testingModel) ~ test$cspm)
+plot(resid(testingModel) ~ test$dpm)
+plot(resid(testingModel) ~ test$killsat15)
+plot(resid(testingModel) ~ test$deathsat15)
+plot(resid(testingModel) ~ test$xpdiffat15)
+plot(resid(testingModel) ~ test$firstblood)
+
+# creating qq-plot
+qqnorm(resid(testingModel))
+qqline(resid(testingModel))
+
+# repeating square root transformations to fix non-constant variance in killsat15 and deathsat15
+test$sqrtKillsAt15 <- sqrt(test$killsat15)
+test$sqrtDeathsAt15 <- sqrt(test$deathsat15)
+
+# re-fitting the model with the transformed variables
+transformedTestingModel <- lm(golddiffat15 ~ cspm + dpm + sqrtKillsAt15 + 
+                                sqrtDeathsAt15 + xpdiffat15 + firstblood, 
+                              data=test)
+summary(transformedTestingModel)
+vif(transformedTestingModel)
+```
